@@ -1,0 +1,18 @@
+[project]
+name = "discord-bot"
+version = "0.1.0"
+description = "A Discord bot running in Docker"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "discord.py>=2.3.0"
+]
+
+[build-system]
+requires = ["uv"]
+build-backend = "uv.build"
+
+[tool.setuptools]
+packages = ["ai_companion"]
