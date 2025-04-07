@@ -1,13 +1,14 @@
 import os
 import discord
 from discord.ext import commands
+from io import BytesIO
 
 from langchain_core.messages import HumanMessage, AIMessageChunk
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from ai_companion.graph import graph_builder
-from ai_companion.settings import settings
 from ai_companion.modules.image import ImageToText
 from ai_companion.modules.speech import SpeechToText, TextToSpeech
+from ai_companion.settings import settings
 
 # Load environment token
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -25,114 +26,79 @@ image_to_text = ImageToText()
 async def on_ready():
     print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
 
-@bot.command()
-async def hello(ctx):
-    await ctx.send("👋 Hello! AI Companion is here.")
+@bot.event
+async def on_message(message):
+    """Handles incoming messages and status updates in Discord."""
+    
+    if message.author == bot.user:
+        return  # Ignore the bot's own messages
+    
+    # Extract message content and user info
+    content = message.content
+    from_user = message.author.id
+    session_id = str(from_user)  # Using user ID as session ID
 
-# @bot.command(name="ask")
-# async def ask_ai(ctx, *, query):
-#     """Text-based query to AI."""
-#     await ctx.send("🤖 Thinking...")
+    # Handle different types of messages
+    if message.attachments:
+        for attachment in message.attachments:
+            if attachment.filename.endswith(('.mp3', '.wav')):
+                # Handle audio message
+                audio_bytes = await attachment.read()
+                transcription = await process_audio_message(audio_bytes)
+                await handle_response(session_id, transcription, message.channel)
+            elif attachment.filename.endswith(('.png', '.jpg', '.jpeg')):
+                # Handle image message
+                image_bytes = await attachment.read()
+                description = await process_image_message(image_bytes)
+                await handle_response(session_id, description, message.channel)
+    else:
+        # Handle text message
+        await handle_response(session_id, content, message.channel)
 
-#     thread_id = ctx.author.id
+# Processing audio message (transcription)
+async def process_audio_message(audio_bytes):
+    """Transcribe audio message."""
+    transcription = await speech_to_text.transcribe(audio_bytes)
+    return transcription
 
-#     async with AsyncSqliteSaver.from_conn_string(settings.SHORT_TERM_MEMORY_DB_PATH) as short_term_memory:
-#         graph = graph_builder.compile(checkpointer=short_term_memory)
+# Processing image message (image analysis)
+async def process_image_message(image_bytes):
+    """Analyze image message."""
+    description = await image_to_text.analyze_image(
+        image_bytes,
+        "Please describe what you see in this image in the context of our conversation."
+    )
+    return description
 
-#         response_text = ""
-#         async for chunk in graph.astream(
-#             {"messages": [HumanMessage(content=query)]},
-#             {"configurable": {"thread_id": thread_id}},
-#             stream_mode="messages",
-#         ):
-#             if chunk[1]["langgraph_node"] == "conversation_node" and isinstance(chunk[0], AIMessageChunk):
-#                 response_text += chunk[0].content
-
-#         await ctx.send(response_text or "🤖 No response.")
-
-import io  # Add this at the top if not already imported
-
-@bot.command(name="ask")
-async def ask_ai(ctx, *, query):
-    """Text-based query to AI with voice response."""
-    await ctx.send("🤖 Thinking...")
-
-    thread_id = ctx.author.id
-
+# Handle AI response and send to Discord
+async def handle_response(session_id, content, channel):
+    """Process message through AI graph and send response."""
     async with AsyncSqliteSaver.from_conn_string(settings.SHORT_TERM_MEMORY_DB_PATH) as short_term_memory:
         graph = graph_builder.compile(checkpointer=short_term_memory)
 
         response_text = ""
         async for chunk in graph.astream(
-            {"messages": [HumanMessage(content=query)]},
-            {"configurable": {"thread_id": thread_id}},
+            {"messages": [HumanMessage(content=content)]},
+            {"configurable": {"thread_id": session_id}},
             stream_mode="messages",
         ):
             if chunk[1]["langgraph_node"] == "conversation_node" and isinstance(chunk[0], AIMessageChunk):
                 response_text += chunk[0].content
 
         if not response_text:
-            return await ctx.send("🤖 No response.")
+            response_text = "🤖 No response."
 
-        await ctx.send(response_text)
+        # Send text response
+        await channel.send(response_text)
 
-        # ✅ Fix: Wrap the bytes in a BytesIO object
+        # If the AI response is voice-based, send as audio file
         voice_bytes = await text_to_speech.synthesize(response_text)
-        voice_file = io.BytesIO(voice_bytes)
+        voice_file = BytesIO(voice_bytes)
         voice_file.seek(0)
 
-        await ctx.send(file=discord.File(fp=voice_file, filename="response.mp3"))
+        await channel.send(file=discord.File(fp=voice_file, filename="response.mp3"))
 
-
-
-@bot.command(name="speak")
-async def speak_ai(ctx):
-    """Transcribe voice message and reply with AI and voice."""
-    if not ctx.message.attachments:
-        return await ctx.send("❌ Please upload an audio file (.mp3, .wav).")
-
-    audio = ctx.message.attachments[0]
-    audio_bytes = await audio.read()
-
-    await ctx.send("🔊 Transcribing your voice...")
-
-    # Transcribe
-    transcription = await speech_to_text.transcribe(audio_bytes)
-
-    # Use LangGraph for response
-    thread_id = ctx.author.id
-    async with AsyncSqliteSaver.from_conn_string(settings.SHORT_TERM_MEMORY_DB_PATH) as short_term_memory:
-        graph = graph_builder.compile(checkpointer=short_term_memory)
-        output_state = await graph.ainvoke(
-            {"messages": [HumanMessage(content=transcription)]},
-            {"configurable": {"thread_id": thread_id}},
-        )
-
-    reply = output_state["messages"][-1].content
-    voice_bytes = await text_to_speech.synthesize(reply)
-
-    await ctx.send(f"📝 Transcript: {transcription}")
-    await ctx.send(f"💬 AI says: {reply}")
-    await ctx.send(file=discord.File(fp=voice_bytes, filename="response.mp3"))
-
-@bot.command(name="analyze")
-async def analyze_image(ctx):
-    """Analyze uploaded image using AI."""
-    if not ctx.message.attachments:
-        return await ctx.send("❌ Please upload an image.")
-
-    image = ctx.message.attachments[0]
-    image_bytes = await image.read()
-
-    await ctx.send("🖼️ Analyzing image...")
-
-    description = await image_to_text.analyze_image(
-        image_bytes,
-        "Please describe what you see in this image in the context of a conversation."
-    )
-
-    await ctx.send(f"📸 Image Analysis: {description}")
-
+# Run the bot
 if __name__ == "__main__":
     if not TOKEN:
         raise ValueError("DISCORD_TOKEN not set in environment variables")
