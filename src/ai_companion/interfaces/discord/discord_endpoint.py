@@ -29,9 +29,30 @@ async def on_ready():
 async def hello(ctx):
     await ctx.send("👋 Hello! AI Companion is here.")
 
+# @bot.command(name="ask")
+# async def ask_ai(ctx, *, query):
+#     """Text-based query to AI."""
+#     await ctx.send("🤖 Thinking...")
+
+#     thread_id = ctx.author.id
+
+#     async with AsyncSqliteSaver.from_conn_string(settings.SHORT_TERM_MEMORY_DB_PATH) as short_term_memory:
+#         graph = graph_builder.compile(checkpointer=short_term_memory)
+
+#         response_text = ""
+#         async for chunk in graph.astream(
+#             {"messages": [HumanMessage(content=query)]},
+#             {"configurable": {"thread_id": thread_id}},
+#             stream_mode="messages",
+#         ):
+#             if chunk[1]["langgraph_node"] == "conversation_node" and isinstance(chunk[0], AIMessageChunk):
+#                 response_text += chunk[0].content
+
+#         await ctx.send(response_text or "🤖 No response.")
+
 @bot.command(name="ask")
 async def ask_ai(ctx, *, query):
-    """Text-based query to AI."""
+    """Text-based query to AI with voice response."""
     await ctx.send("🤖 Thinking...")
 
     thread_id = ctx.author.id
@@ -48,7 +69,15 @@ async def ask_ai(ctx, *, query):
             if chunk[1]["langgraph_node"] == "conversation_node" and isinstance(chunk[0], AIMessageChunk):
                 response_text += chunk[0].content
 
-        await ctx.send(response_text or "🤖 No response.")
+        if not response_text:
+            return await ctx.send("🤖 No response.")
+
+        await ctx.send(response_text)
+
+        # Now generate voice from response
+        voice_bytes = await text_to_speech.synthesize(response_text)
+        await ctx.send(file=discord.File(fp=voice_bytes, filename="response.mp3"))
+
 
 @bot.command(name="speak")
 async def speak_ai(ctx):
