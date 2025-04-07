@@ -7,7 +7,8 @@ RUN apt-get update && apt-get install -y build-essential g++ && rm -rf /var/lib/
 
 # Add dependencies
 COPY uv.lock pyproject2.toml README.md /app/
-RUN uv sync --frozen --no-cache
+RUN uv pip install -r requirements.txt
+# RUN uv sync --frozen --no-cache
 
 # Copy the bot code
 COPY src/ /app/
