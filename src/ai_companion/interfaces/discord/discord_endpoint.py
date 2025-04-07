@@ -50,6 +50,8 @@ async def hello(ctx):
 
 #         await ctx.send(response_text or "🤖 No response.")
 
+import io  # Add this at the top if not already imported
+
 @bot.command(name="ask")
 async def ask_ai(ctx, *, query):
     """Text-based query to AI with voice response."""
@@ -74,9 +76,13 @@ async def ask_ai(ctx, *, query):
 
         await ctx.send(response_text)
 
-        # Now generate voice from response
+        # ✅ Fix: Wrap the bytes in a BytesIO object
         voice_bytes = await text_to_speech.synthesize(response_text)
-        await ctx.send(file=discord.File(fp=voice_bytes, filename="response.mp3"))
+        voice_file = io.BytesIO(voice_bytes)
+        voice_file.seek(0)
+
+        await ctx.send(file=discord.File(fp=voice_file, filename="response.mp3"))
+
 
 
 @bot.command(name="speak")
