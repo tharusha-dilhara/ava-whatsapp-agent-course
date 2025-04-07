@@ -2,26 +2,16 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
 
-# System dependencies
 RUN apt-get update && apt-get install -y build-essential g++ && rm -rf /var/lib/apt/lists/*
 
-# Add dependencies
-COPY uv.lock pyproject2.toml README.md /app/
-RUN uv pip install -r requirements.txt
-# RUN uv sync --frozen --no-cache
+COPY requirements.txt /app/
+RUN uv pip install -r /app/requirements.txt
 
-# Copy the bot code
 COPY src/ /app/
 
-# Virtual environment path
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH"
 
-# Install the package in editable mode
-RUN uv pip install -e .
-
-# Expose the port (optional if you don't use HTTP)
 EXPOSE 5000
 
-# Run your bot script
 CMD ["python", "ai_companion/interfaces/discord/discord_endpoint.py"]
